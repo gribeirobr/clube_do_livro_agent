@@ -1,5 +1,5 @@
 import os
-from langchain_community.document_loaders import TextLoader, PyPDFDirectoryLoader
+from langchain_community.document_loaders import PyPDFDirectoryLoader
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -10,31 +10,35 @@ def preparar_arquivos_teste():
     """Garante que a pasta 'data' exista."""
     os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(ARQUIVO_CALENDARIO):
-        conteudo = "CALENDÁRIO VAZIO\nAdicione as leituras aqui."
         with open(ARQUIVO_CALENDARIO, "w", encoding="utf-8") as f:
-            f.write(conteudo)
+            f.write("CALENDÁRIO VAZIO")
 
 def configurar_ferramenta_rag(api_key: str): 
     chave_limpa = api_key.strip().strip("'").strip('"')
     os.environ["GOOGLE_API_KEY"] = chave_limpa
     
     preparar_arquivos_teste()
-    
-    documentos_completos = []
 
-    if os.path.exists(ARQUIVO_CALENDARIO):
-        loader_txt = TextLoader(ARQUIVO_CALENDARIO, encoding="utf-8")
-        documentos_completos.extend(loader_txt.load())
+    # --- FERRAMENTA 1: O CALENDÁRIO (Lê tudo de uma vez, 100% de precisão) ---
+    @tool
+    def consultar_calendario() -> str:
+        """Usa esta ferramenta SEMPRE que precisarem saber qual é o livro de um mês específico, qual é a leitura atual, ou as regras do clube."""
+        if os.path.exists(ARQUIVO_CALENDARIO):
+            with open(ARQUIVO_CALENDARIO, 'r', encoding='utf-8') as f:
+                return f.read()
+        return "Calendário não encontrado."
     
+    # --- FERRAMENTA 2: OS PDFs (Fatia os livros em páginas e acha citações) ---
+    documentos_pdf = []
     loader_pdf = PyPDFDirectoryLoader(DATA_DIR)
-    documentos_completos.extend(loader_pdf.load())
+    documentos_pdf.extend(loader_pdf.load())
     
-    if not documentos_completos:
+    if not documentos_pdf:
         from langchain_core.documents import Document
-        documentos_completos.append(Document(page_content="Acervo vazio.", metadata={"source": "none"}))
+        documentos_pdf.append(Document(page_content="Acervo de PDFs vazio.", metadata={"source": "none"}))
     
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=200)
-    splits = text_splitter.split_documents(documentos_completos)
+    splits = text_splitter.split_documents(documentos_pdf)
     
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
@@ -42,10 +46,11 @@ def configurar_ferramenta_rag(api_key: str):
     retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     
     @tool
-    def consultar_acervo_clube(query: str) -> str:
-        """Busca informações no calendário do clube e dentro do texto dos livros em PDF. 
-        Use isso para descobrir datas de leitura, detalhes da história, ou analisar personagens."""
+    def consultar_livros_pdf(query: str) -> str:
+        """Busca trechos e informações DENTRO do texto dos livros em PDF. Use para responder sobre a história, páginas e personagens."""
         documentos = retriever.invoke(query)
-        return "\n\n".join([f"Livro/Arquivo: {doc.metadata.get('source', 'Desconhecido')} (Página {doc.metadata.get('page', 'N/A')})\nTrecho encontrado:\n{doc.page_content}" for doc in documentos])
+        # Note que aqui incluímos os metadados (Página e Nome do Arquivo) que você pediu!
+        return "\n\n".join([f"Livro/Arquivo: {doc.metadata.get('source', 'Desconhecido')} (Página {doc.metadata.get('page', 'N/A')})\nTrecho: {doc.page_content}" for doc in documentos])
     
-    return [consultar_acervo_clube]
+    # Retorna as DUAS ferramentas para o LLM escolher.
+    return [consultar_calendario, consultar_livros_pdf]
