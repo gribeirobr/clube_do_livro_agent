@@ -46,6 +46,6 @@ def configurar_ferramenta_rag(api_key: str):
         """Busca informações no calendário do clube e dentro do texto dos livros em PDF. 
         Use isso para descobrir datas de leitura, detalhes da história, ou analisar personagens."""
         documentos = retriever.invoke(query)
-        return "\n\n".join([f"Trecho do acervo:\n{doc.page_content}" for doc in documentos])
+        return "\n\n".join([f"Livro/Arquivo: {doc.metadata.get('source', 'Desconhecido')} (Página {doc.metadata.get('page', 'N/A')})\nTrecho encontrado:\n{doc.page_content}" for doc in documentos])
     
     return [consultar_acervo_clube]
