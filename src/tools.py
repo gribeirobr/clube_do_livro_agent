@@ -43,14 +43,16 @@ def configurar_ferramenta_rag(api_key: str):
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
     
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 10})
     
     @tool
     def consultar_livros_pdf(query: str) -> str:
-        """Busca trechos e informações DENTRO do texto dos livros em PDF. Use para responder sobre a história, páginas e personagens."""
+        """Busca trechos DENTRO dos livros em PDF. 
+        REGRA DE OURO: A sua 'query' DEVE SEMPRE conter o nome do livro ou do autor junto com o tema pesquisado para filtrar corretamente.
+        Exemplo RUIM: 'definição de dinheiro'
+        Exemplo BOM: 'definição de dinheiro livro O que os donos do poder não querem que você saiba'
+        """
         documentos = retriever.invoke(query)
-        # Note que aqui incluímos os metadados (Página e Nome do Arquivo) que você pediu!
         return "\n\n".join([f"Livro/Arquivo: {doc.metadata.get('source', 'Desconhecido')} (Página {doc.metadata.get('page', 'N/A')})\nTrecho: {doc.page_content}" for doc in documentos])
     
-    # Retorna as DUAS ferramentas para o LLM escolher.
     return [consultar_calendario, consultar_livros_pdf]
